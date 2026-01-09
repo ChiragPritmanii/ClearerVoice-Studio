@@ -446,7 +446,6 @@ def crop_video(video_args, track, cropFile):
 
 def evaluate_network_threaded(files, video_args, args, num_workers=None):
     if num_workers is None:
-        # Good default for mixed I/O + GPU
         num_workers = min(8, os.cpu_count() or 1)
 
     est_sources = [None] * len(files)
@@ -456,7 +455,10 @@ def evaluate_network_threaded(files, video_args, args, num_workers=None):
         return idx, est_source
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = executor.map(worker, [(idx, file) for idx, file in enumerate(files)])
+        futures = [
+            executor.submit(worker, idx, file)
+            for idx, file in enumerate(files)
+        ]
 
         for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
             idx, result = future.result()
