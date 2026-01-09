@@ -509,6 +509,7 @@ def estimate_source(file, video_args, args):
 
     inputs = (audio, visual)
 
+	# Load a model instance for every worker
     from network_wrapper import network_wrapper
     network_wrapper = network_wrapper()
     model = network_wrapper(task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K")
