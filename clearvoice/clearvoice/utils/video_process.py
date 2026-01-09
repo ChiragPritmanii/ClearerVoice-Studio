@@ -469,16 +469,17 @@ def evaluate_network_threaded(files, video_args, args, num_workers=None):
 
 def estimate_source(file, video_args, args):
     # TODO: Logic for split and file name
-    fileName = os.path.splitext(os.path.basename(file))[0]
+    splitName = os.path.splitext(os.path.basename(file))[0]
+    fileName = os.path.dirname(file).split("/")[-1]
 
     # Load audio
     audio, _ = sf.read(
-        os.path.join(video_args.pycropPath, "split", fileName + ".wav"), dtype="float32"
+        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"), dtype="float32"
     )
 
     # Load video
     video = cv2.VideoCapture(
-        os.path.join(video_args.pycropPath, "split", fileName + ".avi")
+        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi")
     )
 
     videoFeature = []
