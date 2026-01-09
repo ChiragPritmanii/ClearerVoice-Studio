@@ -181,7 +181,7 @@ def main(video_args, args):
 
     # Detect and keep only the target face track
     target_face_idx = detect_target_face(allTracks, video_args.pyframesPath)
-    allTracks = [allTracks[idx]]
+    allTracks = [allTracks[target_face_idx]]
 
     # Face clips cropping
     for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
