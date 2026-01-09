@@ -513,7 +513,12 @@ def estimate_source(file, video_args, args):
     inputs = (audio, visual)
 
 	# Load a model instance for every worker
-    from network_wrapper import network_wrapper
+    
+    package_root_parent_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..'))
+    if package_root_parent_dir not in sys.path:
+        sys.path.insert(0, package_root_parent_dir)
+    
+    from clearvoice.network_wrapper import network_wrapper
     network_wrapper = network_wrapper()
     model = network_wrapper(task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K")
 	
