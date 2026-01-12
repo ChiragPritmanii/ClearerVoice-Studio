@@ -520,10 +520,10 @@ def estimate_source(file, video_args, args):
     
     from clearvoice.network_wrapper import network_wrapper
     net_wrap = network_wrapper()
-    model = net_wrap(task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K")
+    network = net_wrap(task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K")
 	
     # est_source = decode_one_audio_AV_MossFormer2_TSE_16K(video_args.model, inputs, args)
-    est_source = decode_one_audio_AV_MossFormer2_TSE_16K(model, inputs, args)
+    est_source = decode_one_audio_AV_MossFormer2_TSE_16K(network.model, inputs, args)
     
     return est_source
 
