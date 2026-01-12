@@ -249,7 +249,8 @@ def main(video_args, args):
 
     # est_sources = evaluate_network(files, video_args, args)
     start_time = time.time()
-    est_sources = evaluate_network_threaded(file_splits, video_args, args)
+    est_sources = evaluate_network(files, video_args, args)
+    # est_sources = evaluate_network_threaded(file_splits, video_args, args)
     end_time = time.time()
     runtime = end_time - start_time
     print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
@@ -568,57 +569,57 @@ def estimate_source(file, video_args, args):
     return est_source
 
 
-# def evaluate_network(files, video_args, args):
+def evaluate_network(files, video_args, args):
 
-#     est_sources = []
-#     for file in tqdm.tqdm(files, total=len(files)):
+    est_sources = []
+    for file in tqdm.tqdm(files, total=len(files)):
 
-#         fileName = os.path.splitext(file.split(os.path.sep)[-1])[
-#             0
-#         ]  # Load audio and video
-#         audio, _ = sf.read(
-#             os.path.join(video_args.pycropPath, fileName + ".wav"), dtype="float32"
-#         )
+        fileName = os.path.splitext(file.split(os.path.sep)[-1])[
+            0
+        ]  # Load audio and video
+        audio, _ = sf.read(
+            os.path.join(video_args.pycropPath, fileName + ".wav"), dtype="float32"
+        )
 
-#         video = cv2.VideoCapture(os.path.join(video_args.pycropPath, fileName + ".avi"))
-#         videoFeature = []
-#         while video.isOpened():
-#             ret, frames = video.read()
-#             if ret == True:
-#                 face = cv2.cvtColor(frames, cv2.COLOR_BGR2GRAY)
-#                 face = cv2.resize(face, (224, 224))
-#                 face = face[
-#                     int(112 - (112 / 2)) : int(112 + (112 / 2)),
-#                     int(112 - (112 / 2)) : int(112 + (112 / 2)),
-#                 ]
-#                 videoFeature.append(face)
-#             else:
-#                 break
+        video = cv2.VideoCapture(os.path.join(video_args.pycropPath, fileName + ".avi"))
+        videoFeature = []
+        while video.isOpened():
+            ret, frames = video.read()
+            if ret == True:
+                face = cv2.cvtColor(frames, cv2.COLOR_BGR2GRAY)
+                face = cv2.resize(face, (224, 224))
+                face = face[
+                    int(112 - (112 / 2)) : int(112 + (112 / 2)),
+                    int(112 - (112 / 2)) : int(112 + (112 / 2)),
+                ]
+                videoFeature.append(face)
+            else:
+                break
 
-#         video.release()
-#         visual = np.array(videoFeature) / 255.0
-#         visual = (visual - 0.4161) / 0.1688
+        video.release()
+        visual = np.array(videoFeature) / 255.0
+        visual = (visual - 0.4161) / 0.1688
 
-#         length = int(audio.shape[0] / 16000 * 25)
-#         if visual.shape[0] < length:
-#             visual = np.pad(
-#                 visual,
-#                 ((0, int(length - visual.shape[0])), (0, 0), (0, 0)),
-#                 mode="edge",
-#             )
+        length = int(audio.shape[0] / 16000 * 25)
+        if visual.shape[0] < length:
+            visual = np.pad(
+                visual,
+                ((0, int(length - visual.shape[0])), (0, 0), (0, 0)),
+                mode="edge",
+            )
 
-#         audio /= np.max(np.abs(audio))
-#         audio = np.expand_dims(audio, axis=0)
-#         visual = np.expand_dims(visual, axis=0)
+        audio /= np.max(np.abs(audio))
+        audio = np.expand_dims(audio, axis=0)
+        visual = np.expand_dims(visual, axis=0)
 
-#         inputs = (audio, visual)
-#         est_source = decode_one_audio_AV_MossFormer2_TSE_16K(
-#             video_args.model, inputs, args
-#         )
+        inputs = (audio, visual)
+        est_source = decode_one_audio_AV_MossFormer2_TSE_16K(
+            video_args.model, inputs, args
+        )
 
-#         est_sources.append(est_source)
+        est_sources.append(est_source)
 
-#     return est_sources
+    return est_sources
 
 # this step can be avoided if we directly need the audio files
 def visualization(fname, tracks, est_sources, video_args):
