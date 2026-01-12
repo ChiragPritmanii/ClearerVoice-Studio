@@ -620,7 +620,7 @@ def estimate_source(file, video_args, args):
 
 #     return est_sources
 
-
+# this step can be avoided if we directly need the audio files
 def visualization(fname, tracks, est_sources, video_args):
     # CPU: visulize the result for video format
     flist = glob.glob(os.path.join(video_args.pyframesPath, "*.jpg"))
@@ -631,8 +631,9 @@ def visualization(fname, tracks, est_sources, video_args):
         if max_value > 1:
             audio /= max_value
         sf.write(video_args.pycropPath + f"/split/{fname}" + "/est_%s.wav" % idx, audio, 16000)
-    
-    est_sources = np.concatenate(est_sources, axis=1)
+
+    print("Est Sources Type:", type(est_sources), est_sources[0].shape, type(est_sources[0]))
+    est_sources = np.concatenate(est_sources, axis=0)
     max_value = np.max(np.abs(audio))
     if max_value > 1:
         audio /= max_value
