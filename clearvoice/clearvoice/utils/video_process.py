@@ -261,14 +261,14 @@ def main(video_args, args):
     print(f"Time taken for visualization step: {runtime:.3f} seconds")
 
     # combine files in pycrop
-    for idx, file in enumerate(file_splits):
+    for idx, file in enumerate(files):
         print(file)
-        command = f"ffmpeg -i {file} {file[:-9]}_orig_{idx}.mp4 ;"
+        command = f"ffmpeg -i {file} {file[:-9]}orig_{idx}.mp4 ;"
         command += f"rm {file} ;"
         command += f"rm {file.replace('.avi', '.wav')} ;"
 
-        command += f"ffmpeg -i {file[:-9]}_orig_{idx}.mp4 -i {file[:-9]}_est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}_est_{idx}.mp4 ;"
-        # command += f"rm {file[:-9]}_est_{idx}.wav ;"
+        command += f"ffmpeg -i {file[:-9]}orig_{idx}.mp4 -i {file[:-9]}est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}est_{idx}.mp4 ;"
+        # command += f"rm {file[:-9]}est_{idx}.wav ;"
 
         output = subprocess.call(command, shell=True, stdout=None)
     
