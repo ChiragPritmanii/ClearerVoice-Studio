@@ -1,4 +1,4 @@
-import sys, time, os, tqdm, torch, argparse, glob, subprocess, warnings, cv2, pickle, pdb, math, python_speech_features
+import sys, time, os, tqdm, torch, time, argparse, glob, subprocess, warnings, cv2, pickle, pdb, math, python_speech_features
 import numpy as np
 from scipy import signal
 from shutil import rmtree
@@ -124,6 +124,7 @@ def main(video_args, args):
     )
 
     # Extract audio
+    start_time = time.time()
     video_args.audioFilePath = os.path.join(video_args.pyaviPath, "audio.wav")
     command = (
         "ffmpeg -y -i %s -qscale:a 0 -ac 1 -vn -threads %d -ar 16000 %s -loglevel panic"
@@ -138,8 +139,12 @@ def main(video_args, args):
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Extract the audio and save in %s \r\n" % (video_args.audioFilePath)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken to extract audio: {runtime:.3f} seconds")
 
     # Extract the video frames
+    start_time = time.time()
     command = "ffmpeg -y -i %s -qscale:v 2 -threads %d -f image2 %s -loglevel panic" % (
         video_args.videoFilePath,
         video_args.nDataLoaderThread,
@@ -150,22 +155,34 @@ def main(video_args, args):
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Extract the frames and save in %s \r\n" % (video_args.pyframesPath)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken to extract video frames: {runtime:.3f} seconds")
 
     # Scene detection for the video frames
+    start_time = time.time()
     scene = scene_detect(video_args)
     sys.stderr.write(
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Scene detection and save in %s \r\n" % (video_args.pyworkPath)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for scene detection: {runtime:.3f} seconds")
 
     # Face detection for the video frames
+    start_time = time.time()
     faces = inference_video(video_args)
     sys.stderr.write(
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Face detection and save in %s \r\n" % (video_args.pyworkPath)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for face detection: {runtime:.3f} seconds")
 
     # Face tracking
+    start_time = time.time()
     allTracks, vidTracks = [], []
     for shot in scene:
         if (
@@ -178,12 +195,20 @@ def main(video_args, args):
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Face track and detected %d tracks \r\n" % len(allTracks)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for face tracking: {runtime:.3f} seconds")
 
     # Detect and keep only the target face track
+    start_time = time.time()
     target_face_idx = detect_target_face(allTracks, video_args.pyframesPath)
     allTracks = [allTracks[target_face_idx]]
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken detect target face: {runtime:.3f} seconds")
 
     # Face clips cropping
+    start_time = time.time()
     for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
         vidTracks.append(
             crop_video(
@@ -200,6 +225,9 @@ def main(video_args, args):
     fil = open(savePath, "rb")
     vidTracks = pickle.load(fil)
     fil.close()
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken to crop face clips: {runtime:.3f} seconds")
 
     # AVSE
     files = glob.glob("%s/*.avi" % video_args.pycropPath)
@@ -215,22 +243,32 @@ def main(video_args, args):
     # Split the cropped video to multiple chunks
     split_to_chunks(in_path, out_path)
     
-    files = glob.glob(f"{out_path}/*.avi")
+    file_splits = glob.glob(f"{out_path}/*.avi")
+    file_splits.sort()
+    print("Files to be processed:", file_splits)
 
     # est_sources = evaluate_network(files, video_args, args)
-    est_sources = evaluate_network_threaded(files, video_args, args)
+    start_time = time.time()
+    est_sources = evaluate_network_threaded(file_splits, video_args, args)
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
 
-    visualization(vidTracks, est_sources, video_args)
+    start_time = time.time()
+    visualization(fname, vidTracks, est_sources, video_args)
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for visualization step: {runtime:.3f} seconds")
 
     # combine files in pycrop
-    for idx, file in enumerate(files):
+    for idx, file in enumerate(file_splits):
         print(file)
-        command = f"ffmpeg -i {file} {file[:-9]}orig_{idx}.mp4 ;"
+        command = f"ffmpeg -i {file} {file[:-9]}_orig_{idx}.mp4 ;"
         command += f"rm {file} ;"
         command += f"rm {file.replace('.avi', '.wav')} ;"
 
-        command += f"ffmpeg -i {file[:-9]}orig_{idx}.mp4 -i {file[:-9]}est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}est_{idx}.mp4 ;"
-        # command += f"rm {file[:-9]}est_{idx}.wav ;"
+        command += f"ffmpeg -i {file[:-9]}_orig_{idx}.mp4 -i {file[:-9]}_est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}_est_{idx}.mp4 ;"
+        # command += f"rm {file[:-9]}_est_{idx}.wav ;"
 
         output = subprocess.call(command, shell=True, stdout=None)
     
@@ -482,6 +520,7 @@ def estimate_source(file, video_args, args):
     video = cv2.VideoCapture(
         os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi")
     )
+    print("Processing audio and video:", os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi"), os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"))
 
     videoFeature = []
     while video.isOpened():
@@ -529,60 +568,60 @@ def estimate_source(file, video_args, args):
     return est_source
 
 
-def evaluate_network(files, video_args, args):
+# def evaluate_network(files, video_args, args):
 
-    est_sources = []
-    for file in tqdm.tqdm(files, total=len(files)):
+#     est_sources = []
+#     for file in tqdm.tqdm(files, total=len(files)):
 
-        fileName = os.path.splitext(file.split(os.path.sep)[-1])[
-            0
-        ]  # Load audio and video
-        audio, _ = sf.read(
-            os.path.join(video_args.pycropPath, fileName + ".wav"), dtype="float32"
-        )
+#         fileName = os.path.splitext(file.split(os.path.sep)[-1])[
+#             0
+#         ]  # Load audio and video
+#         audio, _ = sf.read(
+#             os.path.join(video_args.pycropPath, fileName + ".wav"), dtype="float32"
+#         )
 
-        video = cv2.VideoCapture(os.path.join(video_args.pycropPath, fileName + ".avi"))
-        videoFeature = []
-        while video.isOpened():
-            ret, frames = video.read()
-            if ret == True:
-                face = cv2.cvtColor(frames, cv2.COLOR_BGR2GRAY)
-                face = cv2.resize(face, (224, 224))
-                face = face[
-                    int(112 - (112 / 2)) : int(112 + (112 / 2)),
-                    int(112 - (112 / 2)) : int(112 + (112 / 2)),
-                ]
-                videoFeature.append(face)
-            else:
-                break
+#         video = cv2.VideoCapture(os.path.join(video_args.pycropPath, fileName + ".avi"))
+#         videoFeature = []
+#         while video.isOpened():
+#             ret, frames = video.read()
+#             if ret == True:
+#                 face = cv2.cvtColor(frames, cv2.COLOR_BGR2GRAY)
+#                 face = cv2.resize(face, (224, 224))
+#                 face = face[
+#                     int(112 - (112 / 2)) : int(112 + (112 / 2)),
+#                     int(112 - (112 / 2)) : int(112 + (112 / 2)),
+#                 ]
+#                 videoFeature.append(face)
+#             else:
+#                 break
 
-        video.release()
-        visual = np.array(videoFeature) / 255.0
-        visual = (visual - 0.4161) / 0.1688
+#         video.release()
+#         visual = np.array(videoFeature) / 255.0
+#         visual = (visual - 0.4161) / 0.1688
 
-        length = int(audio.shape[0] / 16000 * 25)
-        if visual.shape[0] < length:
-            visual = np.pad(
-                visual,
-                ((0, int(length - visual.shape[0])), (0, 0), (0, 0)),
-                mode="edge",
-            )
+#         length = int(audio.shape[0] / 16000 * 25)
+#         if visual.shape[0] < length:
+#             visual = np.pad(
+#                 visual,
+#                 ((0, int(length - visual.shape[0])), (0, 0), (0, 0)),
+#                 mode="edge",
+#             )
 
-        audio /= np.max(np.abs(audio))
-        audio = np.expand_dims(audio, axis=0)
-        visual = np.expand_dims(visual, axis=0)
+#         audio /= np.max(np.abs(audio))
+#         audio = np.expand_dims(audio, axis=0)
+#         visual = np.expand_dims(visual, axis=0)
 
-        inputs = (audio, visual)
-        est_source = decode_one_audio_AV_MossFormer2_TSE_16K(
-            video_args.model, inputs, args
-        )
+#         inputs = (audio, visual)
+#         est_source = decode_one_audio_AV_MossFormer2_TSE_16K(
+#             video_args.model, inputs, args
+#         )
 
-        est_sources.append(est_source)
+#         est_sources.append(est_source)
 
-    return est_sources
+#     return est_sources
 
 
-def visualization(tracks, est_sources, video_args):
+def visualization(fname, tracks, est_sources, video_args):
     # CPU: visulize the result for video format
     flist = glob.glob(os.path.join(video_args.pyframesPath, "*.jpg"))
     flist.sort()
@@ -591,7 +630,13 @@ def visualization(tracks, est_sources, video_args):
         max_value = np.max(np.abs(audio))
         if max_value > 1:
             audio /= max_value
-        sf.write(video_args.pycropPath + "/est_%s.wav" % idx, audio, 16000)
+        sf.write(video_args.pycropPath + f"/split/{fname}" + "/est_%s.wav" % idx, audio, 16000)
+    
+    est_sources = np.concatenate(est_sources, axis=1)
+    max_value = np.max(np.abs(audio))
+    if max_value > 1:
+        audio /= max_value
+    sf.write(video_args.pycropPath + f"/est_{fname}.wav", audio, 16000)
 
     for tidx, track in enumerate(tracks):
         faces = [[] for i in range(len(flist))]
@@ -631,7 +676,7 @@ def visualization(tracks, est_sources, video_args):
             "ffmpeg -y -i %s -i %s -threads %d -c:v copy -c:a copy %s -loglevel panic"
             % (
                 os.path.join(video_args.pyaviPath, "video_only.avi"),
-                (video_args.pycropPath + "/est_%s.wav" % tidx),
+                (video_args.pycropPath + f"/est_{fname}.wav"),
                 video_args.nDataLoaderThread,
                 os.path.join(video_args.pyaviPath, "video_out_%s.avi" % tidx),
             )
