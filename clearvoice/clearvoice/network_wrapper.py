@@ -151,7 +151,7 @@ class network_wrapper(nn.Module):
         # General model and inference settings
         parser.add_argument('--config', default=str(self.config_path), help="Path to configuration file", action=yamlargparse.ActionConfigFile)
         parser.add_argument('--mode', type=str, default='inference', help='Modes: train or inference')
-        parser.add_argument('--checkpoint-dir', dest='checkpoint_dir', type=str, default='checkpoint_dir/AV_MossFormer2_TSE_16K', help='Checkpoint directory')
+        parser.add_argument('--checkpoint-dir', dest='checkpoint_dir', type=str, default='checkpoints/AV_MossFormer2_TSE_16K', help='Checkpoint directory')
         parser.add_argument('--input-path', dest='input_path', type=str, help='Path for mixed audio input')
         parser.add_argument('--output-dir', dest='output_dir', type=str, help='Directory for separated audio output')
         parser.add_argument('--use-cuda', dest='use_cuda', default=1, type=int, help='Enable CUDA (1=True, 0=False)')
