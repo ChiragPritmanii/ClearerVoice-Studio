@@ -447,6 +447,7 @@ def crop_video(video_args, track, cropFile):
 def evaluate_network_threaded(files, video_args, args, num_workers=None):
     if num_workers is None:
         num_workers = 1
+    print("Using num_workers:", num_workers)
 
     est_sources = [None] * len(files)
 
