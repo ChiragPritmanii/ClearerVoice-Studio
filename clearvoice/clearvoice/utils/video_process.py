@@ -103,7 +103,7 @@ def main(video_args, args):
     if video_args.duration == 0:
         # 25 fps video is extracted from the original video    
         command = (
-            "ffmpeg -y -i %s -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic"
+            "ffmpeg -y -i %s -vf scale=1080:-2:flags=fast_bilinear -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic"
             % (
                 video_args.videoPath,
                 video_args.nDataLoaderThread,
@@ -112,7 +112,7 @@ def main(video_args, args):
         )
     else:
         command = (
-            "ffmpeg -y -i %s -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic"
+            "ffmpeg -y -i %s -vf scale=1080:-2:flags=fast_bilinear -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic"
             % (
                 video_args.videoPath,
                 video_args.nDataLoaderThread,
