@@ -31,3 +31,4 @@ huggingface-hub>=0.26.2
 gdown==5.2.0
 pydub
 xls_r_sqa
+batch-face

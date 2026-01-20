@@ -6,6 +6,7 @@ from scipy.io import wavfile
 from scipy.interpolate import interp1d
 from sklearn.metrics import accuracy_score, f1_score
 import soundfile as sf
+from batch_face import RetinaFace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from scenedetect.video_manager import VideoManager
@@ -242,7 +243,7 @@ def main(video_args, args):
 
     # Split the cropped video to multiple chunks
     split_to_chunks(in_path, out_path)
-    
+
     file_splits = glob.glob(f"{out_path}/*.avi")
     file_splits.sort()
     print("Files to be processed:", file_splits)
@@ -255,26 +256,35 @@ def main(video_args, args):
     runtime = end_time - start_time
     print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
 
-    start_time = time.time()
-    visualization(fname, vidTracks, est_sources, video_args)
-    end_time = time.time()
-    runtime = end_time - start_time
-    print(f"Time taken for visualization step: {runtime:.3f} seconds")
+    # Save the estimated audio to wav format:
+    est_audio = np.concatenate(est_sources, axis=0)
+    max_value = np.max(np.abs(est_audio))
+    if max_value > 1:
+        est_audio /= max_value
+    sf.write(video_args.pycropPath + f"/est_{fname}.wav", est_audio, 16000)
 
-    # combine files in pycrop
-    for idx, file in enumerate(files):
-        print(file)
-        command = f"ffmpeg -i {file} {file[:-9]}orig_{idx}.mp4 ;"
-        command += f"rm {file} ;"
-        command += f"rm {file.replace('.avi', '.wav')} ;"
+    # below part can be omitted as we just need the estimated audio
+    # Omitted:
+    # start_time = time.time()
+    # visualization(fname, vidTracks, est_sources, video_args)
+    # end_time = time.time()
+    # runtime = end_time - start_time
+    # print(f"Time taken for visualization step: {runtime:.3f} seconds")
 
-        command += f"ffmpeg -i {file[:-9]}orig_{idx}.mp4 -i {file[:-9]}est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}est_{idx}.mp4 ;"
-        # command += f"rm {file[:-9]}est_{idx}.wav ;"
+    # # combine files in pycrop
+    # for idx, file in enumerate(files):
+    #     print(file)
+    #     command = f"ffmpeg -i {file} {file[:-9]}orig_{idx}.mp4 ;"
+    #     command += f"rm {file} ;"
+    #     command += f"rm {file.replace('.avi', '.wav')} ;"
 
-        output = subprocess.call(command, shell=True, stdout=None)
-    
-	# the above snippet, combines the wav and avi files and creates mp4 for all the splits we give 
-    # we need to combine the final mp4 splits together and extract audio from the same 
+    #     command += f"ffmpeg -i {file[:-9]}orig_{idx}.mp4 -i {file[:-9]}est_{idx}.wav -c:v copy -map 0:v:0 -map 1:a:0 -shortest {file[:-9]}est_{idx}.mp4 ;"
+    #     # command += f"rm {file[:-9]}est_{idx}.wav ;"
+
+    #     output = subprocess.call(command, shell=True, stdout=None)
+
+    # # the above snippet, combines the wav and avi files and creates mp4 for all the splits we give
+    # # we need to combine the final mp4 splits together and extract audio from the same
 
     rmtree(video_args.pyworkPath)
     rmtree(video_args.pyframesPath)
@@ -340,6 +350,64 @@ def scene_detect(video_args):
             "%s - scenes detected %d\n" % (video_args.videoFilePath, len(sceneList))
         )
     return sceneList
+
+
+import cv2
+
+
+
+def load_img(p):
+    img = cv2.imread(p)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
+
+
+def inference_video_retface(video_args):
+    # GPU: Face detection, output is the list contains the face location and score in this frame
+
+    gpu_id = 0 if torch.cuda.is_available() else -1
+    DET = RetinaFace(gpu_id=gpu_id)
+    flist = glob.glob(os.path.join(video_args.pyframesPath, "*.jpg"))
+    flist.sort()
+
+    start = time.time()
+    with ThreadPoolExecutor(32) as ex:
+        imgs = list(ex.map(load_img, flist))
+    end = time.time()
+    runtime = end - start
+    print(f"Time taken to load all frames: {runtime:.3f} seconds")
+
+    max_size = -1  # if the image's max size is larger than 1080, it will be resized to 1080, -1 means no resize
+    threshold = 0.95  # confidence threshold
+    batch_size = 10  # images in a batch
+
+    start = time.time()
+    bboxes = DET(
+        imgs,
+        threshold=threshold,
+        max_size=max_size,
+        batch_size=batch_size,
+        return_dict=True,
+    )
+    end = time.time()
+    runtime = end - start
+    print(f"Time taken to detect faces in all frames: {runtime:.3f} seconds")
+
+    dets = []
+    for fidx, fname in enumerate(flist):
+        dets.append([])
+        for bbox in bboxes[fidx]:
+            dets[-1].append(
+                {"frame": fidx, "bbox": (bbox["box"]).tolist(), "conf": bbox["score"]}
+            )
+        sys.stderr.write(
+            "%s-%05d; %d dets\r" % (video_args.videoFilePath, fidx, len(dets[-1]))
+        )
+
+    savePath = os.path.join(video_args.pyworkPath, "faces.pckl")
+    with open(savePath, "wb") as fil:
+        pickle.dump(dets, fil)
+    return dets
 
 
 def inference_video(video_args):
@@ -483,6 +551,7 @@ def crop_video(video_args, track, cropFile):
     return {"track": track, "proc_track": dets}
 
 
+# Remove:
 def evaluate_network_threaded(files, video_args, args, num_workers=None):
     if num_workers is None:
         num_workers = 2
@@ -495,10 +564,7 @@ def evaluate_network_threaded(files, video_args, args, num_workers=None):
         return idx, est_source
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(worker, idx, file)
-            for idx, file in enumerate(files)
-        ]
+        futures = [executor.submit(worker, idx, file) for idx, file in enumerate(files)]
 
         for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
             idx, result = future.result()
@@ -507,6 +573,7 @@ def evaluate_network_threaded(files, video_args, args, num_workers=None):
     return est_sources
 
 
+# Remove:
 def estimate_source(file, video_args, args):
     # TODO: Logic for split and file name
     splitName = os.path.splitext(os.path.basename(file))[0]
@@ -514,14 +581,19 @@ def estimate_source(file, video_args, args):
 
     # Load audio
     audio, _ = sf.read(
-        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"), dtype="float32"
+        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"),
+        dtype="float32",
     )
 
     # Load video
     video = cv2.VideoCapture(
         os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi")
     )
-    print("Processing audio and video:", os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi"), os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"))
+    print(
+        "Processing audio and video:",
+        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".avi"),
+        os.path.join(video_args.pycropPath, "split", fileName, splitName + ".wav"),
+    )
 
     videoFeature = []
     while video.isOpened():
@@ -553,19 +625,22 @@ def estimate_source(file, video_args, args):
 
     inputs = (audio, visual)
 
-	# Load a model instance for every worker
-    
-    package_root_parent_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..'))
+    # Load a model instance for every worker
+
+    package_root_parent_dir = os.path.abspath(os.path.join(os.getcwd(), "..", ".."))
     if package_root_parent_dir not in sys.path:
         sys.path.insert(0, package_root_parent_dir)
-    
+
     from clearvoice.network_wrapper import network_wrapper
+
     net_wrap = network_wrapper()
-    network = net_wrap(task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K")
-	
+    network = net_wrap(
+        task="target_speaker_extraction", model_name="AV_MossFormer2_TSE_16K"
+    )
+
     # est_source = decode_one_audio_AV_MossFormer2_TSE_16K(video_args.model, inputs, args)
     est_source = decode_one_audio_AV_MossFormer2_TSE_16K(network.model, inputs, args)
-    
+
     return est_source
 
 
@@ -621,7 +696,9 @@ def evaluate_network(files, video_args, args):
 
     return est_sources
 
-# this step can be avoided if we directly need the audio files
+
+# Remove:
+# This step can be avoided if we directly need the audio files
 def visualization(fname, tracks, est_sources, video_args):
     # CPU: visulize the result for video format
     flist = glob.glob(os.path.join(video_args.pyframesPath, "*.jpg"))
@@ -631,9 +708,18 @@ def visualization(fname, tracks, est_sources, video_args):
         max_value = np.max(np.abs(audio))
         if max_value > 1:
             audio /= max_value
-        sf.write(video_args.pycropPath + f"/split/{fname}" + "/est_%s.wav" % idx, audio, 16000)
+        sf.write(
+            video_args.pycropPath + f"/split/{fname}" + "/est_%s.wav" % idx,
+            audio,
+            16000,
+        )
 
-    print("Est Sources Type:", type(est_sources), est_sources[0].shape, type(est_sources[0]))
+    print(
+        "Est Sources Type:",
+        type(est_sources),
+        est_sources[0].shape,
+        type(est_sources[0]),
+    )
     est_sources = np.concatenate(est_sources, axis=0)
     max_value = np.max(np.abs(audio))
     if max_value > 1:
