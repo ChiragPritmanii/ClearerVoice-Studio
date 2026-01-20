@@ -173,7 +173,8 @@ def main(video_args, args):
 
     # Face detection for the video frames
     start_time = time.time()
-    faces = inference_video(video_args)
+    # faces = inference_video(video_args)
+    faces = inference_video_retface(video_args)
     sys.stderr.write(
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Face detection and save in %s \r\n" % (video_args.pyworkPath)
@@ -350,10 +351,6 @@ def scene_detect(video_args):
             "%s - scenes detected %d\n" % (video_args.videoFilePath, len(sceneList))
         )
     return sceneList
-
-
-import cv2
-
 
 
 def load_img(p):
