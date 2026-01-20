@@ -39,7 +39,7 @@ def args_param():
     warnings.filterwarnings("ignore")
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--nDataLoaderThread", type=int, default=10, help="Number of workers"
+        "--nDataLoaderThread", type=int, default=12, help="Number of workers"
     )
     parser.add_argument(
         "--facedetScale",
@@ -368,7 +368,7 @@ def inference_video_retface(video_args):
     flist.sort()
 
     start = time.time()
-    with ThreadPoolExecutor(32) as ex:
+    with ThreadPoolExecutor(64) as ex:
         imgs = list(ex.map(load_img, flist))
     end = time.time()
     runtime = end - start
