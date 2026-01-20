@@ -98,7 +98,10 @@ def main(video_args, args):
     # Extract video
     video_args.videoFilePath = os.path.join(video_args.pyaviPath, "video.avi")
     # If duration did not set, extract the whole video, otherwise extract the video from 'video_args.start' to 'video_args.start + video_args.duration'
+    
+    start_time = time.time()
     if video_args.duration == 0:
+        # 25 fps video is extracted from the original video    
         command = (
             "ffmpeg -y -i %s -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic"
             % (
@@ -123,6 +126,9 @@ def main(video_args, args):
         time.strftime("%Y-%m-%d %H:%M:%S")
         + " Extract the video and save in %s \r\n" % (video_args.videoFilePath)
     )
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken to extract video: {runtime:.3f} seconds")
 
     # Extract audio
     start_time = time.time()
