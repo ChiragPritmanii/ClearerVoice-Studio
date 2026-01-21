@@ -103,7 +103,7 @@ def main(video_args, args):
     if video_args.duration == 0:
         # 25 fps video is extracted from the original video    
         command = (
-            "ffmpeg -y -i %s -vf scale=1080:-2:flags=fast_bilinear -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic"
+            "ffmpeg -y -i %s -vf scale=720:-2:flags=fast_bilinear -qscale:v 2 -threads %d -async 1 -r 25 %s -loglevel panic"
             % (
                 video_args.videoPath,
                 video_args.nDataLoaderThread,
@@ -112,7 +112,7 @@ def main(video_args, args):
         )
     else:
         command = (
-            "ffmpeg -y -i %s -vf scale=1080:-2:flags=fast_bilinear -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic"
+            "ffmpeg -y -i %s -vf scale=720:-2:flags=fast_bilinear -qscale:v 2 -threads %d -ss %.3f -to %.3f -async 1 -r 25 %s -loglevel panic"
             % (
                 video_args.videoPath,
                 video_args.nDataLoaderThread,
@@ -381,7 +381,7 @@ def inference_video_retface(video_args):
     print(f"Time taken to load all frames: {runtime:.3f} seconds")
 
     max_size = -1  # if the image's max size is larger than 1080, it will be resized to 1080, -1 means no resize
-    threshold = 0.95  # confidence threshold
+    threshold = 0.8  # confidence threshold
     batch_size = 10  # images in a batch
 
     start = time.time()
