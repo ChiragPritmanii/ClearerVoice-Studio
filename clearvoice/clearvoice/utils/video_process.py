@@ -382,7 +382,7 @@ def inference_video_retface(video_args):
 
     max_size = -1  # if the image's max size is larger than 1080, it will be resized to 1080, -1 means no resize
     threshold = 0.8  # confidence threshold
-    batch_size = 10  # images in a batch
+    batch_size = 32  # images in a batch
 
     start = time.time()
     bboxes = DET(
