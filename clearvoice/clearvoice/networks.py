@@ -138,7 +138,7 @@ class SpeechModel:
         - FileNotFoundError: If neither 'last_best_checkpoint' nor 'last_checkpoint' files are found.
         """
         # Define paths for the best model and the last checkpoint
-        best_name = os.path.join(self.args.checkpoint_dir, 'last_best_checkpoint.pt')
+        best_name = os.path.join(self.args.checkpoint_dir, 'last_best_checkpoint')
         # Check if the last best checkpoint exists
         if not os.path.isfile(best_name):
             if not self.download_model(self.name):
