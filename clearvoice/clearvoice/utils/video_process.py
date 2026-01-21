@@ -249,11 +249,11 @@ def main(video_args, args):
     os.makedirs(out_path, exist_ok=True)
 
     # Split the cropped video to multiple chunks
-    split_to_chunks(in_path, out_path)
+    # split_to_chunks(in_path, out_path)
 
-    file_splits = glob.glob(f"{out_path}/*.avi")
-    file_splits.sort()
-    print("Files to be processed:", file_splits)
+    # file_splits = glob.glob(f"{out_path}/*.avi")
+    # file_splits.sort()
+    # print("Files to be processed:", file_splits)
 
     # est_sources = evaluate_network(files, video_args, args)
     start_time = time.time()
