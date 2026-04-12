@@ -7,6 +7,8 @@ from scipy.interpolate import interp1d
 import soundfile as sf
 from batch_face import RetinaFace
 from concurrent.futures import ThreadPoolExecutor
+from sklearn.cluster import DBSCAN
+from facenet_pytorch import InceptionResnetV1
 
 from scenedetect.video_manager import VideoManager
 from scenedetect.scene_manager import SceneManager
@@ -46,7 +48,7 @@ def args_param():
         help="Scale factor for face detection, the frames will be scale to 0.25 orig",
     )
     parser.add_argument(
-        "--minTrack", type=int, default=50, help="Number of min frames for each shot"
+        "--minTrack", type=int, default=0, help="Number of min frames for each shot"
     )
     parser.add_argument(
         "--numFailedDet",
@@ -207,8 +209,18 @@ def main(video_args, args):
 
     # Detect and keep only the target face track
     start_time = time.time()
-    target_face_idx = detect_target_face(allTracks, video_args.pyframesPath)
-    allTracks = [allTracks[target_face_idx]]
+    merged_target_track = merge_tracks_by_facial_identity(
+        allTracks,
+        video_args.pyframesPath,
+        eps=0.5,                           # Distance threshold for clustering
+        selection_method='center_distance', # Pick cluster closest to center
+        sample_method='middle'              # Sample middle frame of each track
+    )
+    allTracks = [merged_target_track]
+    print(f"Successfully merged tracks by facial identity")
+    # Previous Method : 
+    # target_face_idx = detect_target_face(allTracks, video_args.pyframesPath)
+    # allTracks = [allTracks[target_face_idx]]
     end_time = time.time()
     runtime = end_time - start_time
     print(f"Time taken detect target face: {runtime:.3f} seconds")
@@ -420,7 +432,7 @@ def bb_intersection_over_union(boxA, boxB, evalCol=False):
 
 def track_shot(video_args, sceneFaces):
     # CPU: Face tracking
-    iouThres = 0.5  # Minimum IOU between consecutive face detections
+    iouThres = 0.0  # Minimum IOU between consecutive face detections
     tracks = []
     while True:
         track = []
@@ -515,6 +527,432 @@ def crop_video(video_args, track, cropFile):
     output = subprocess.call(command, shell=True, stdout=None)
     os.remove(cropFile + "t.avi")
     return {"track": track, "proc_track": dets}
+
+
+def extract_representative_face_from_track(track, frames_path, sample_method='middle'):
+    """
+    Extract a single representative face image from a track for embedding computation.
+
+    The track already has bboxes for all frames (interpolated), so we sample one
+    frame and use its bbox to extract the face region.
+
+    Args:
+        track: Track dict with 'frame' array and 'bbox' array
+        frames_path: Path to directory containing frame images
+        sample_method: How to choose which frame to sample from the track.
+                      Options: 'middle' (default), 'first', 'last'
+
+    Returns:
+        Tuple of (face_image, frame_number, bbox)
+        - face_image: RGB numpy array of the extracted face
+        - frame_number: Which frame this face was sampled from
+        - bbox: The bounding box used to extract this face
+    """
+
+    frame_indices = track['frame']
+    bboxes = track['bbox']
+
+    # Choose which frame to sample from
+    if sample_method == 'middle':
+        # Middle frame is usually cleanest (not at track boundaries)
+        sample_idx = len(frame_indices) // 2
+    elif sample_method == 'first':
+        sample_idx = 0
+    elif sample_method == 'last':
+        sample_idx = len(frame_indices) - 1
+    else:
+        raise ValueError(f"Unknown sample_method: {sample_method}")
+
+    frame_num = int(frame_indices[sample_idx])
+    bbox = bboxes[sample_idx]
+
+    # Load the frame
+    flist = sorted(glob.glob(os.path.join(frames_path, "*.jpg")))
+    frame_path = flist[frame_num]
+    frame = cv2.imread(frame_path)
+
+    # Extract face region using the bbox
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    # Add small padding
+    padding = 5
+    x1 = max(0, x1 - padding)
+    y1 = max(0, y1 - padding)
+    x2 = min(frame.shape[1], x2 + padding)
+    y2 = min(frame.shape[0], y2 + padding)
+
+    face_crop = frame[y1:y2, x1:x2]
+
+    # Convert BGR to RGB
+    face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+
+    return face_rgb, frame_num, bbox
+
+
+def compute_embedding_for_face(face_image, model, device):
+    """
+    Compute a 512-dimensional embedding for a face image using InceptionResnetV1.
+
+    Args:
+        face_image: RGB face image as numpy array
+        model: InceptionResnetV1 model instance
+        device: torch device (cpu or cuda)
+
+    Returns:
+        512-dimensional embedding vector
+    """
+
+    # Resize to model input size
+    face_resized = cv2.resize(face_image, (160, 160))
+
+    # Convert to tensor
+    face_tensor = torch.from_numpy(face_resized).permute(2, 0, 1).float() / 255.0
+
+    # Normalize
+    face_tensor = (face_tensor - 0.5) / 0.5
+    face_tensor = face_tensor.unsqueeze(0).to(device)
+
+    # Extract embedding
+    with torch.no_grad():
+        embedding = model(face_tensor)
+
+    return embedding[0].cpu().numpy()
+
+
+def extract_embeddings_from_tracks(allTracks, frames_path, sample_method='middle'):
+    """
+    Extract one representative embedding from each track.
+
+    This is much more efficient than computing embeddings for all detections.
+    You only compute embeddings for one face per track (e.g., 5 embeddings
+    instead of potentially hundreds).
+
+    Args:
+        allTracks: List of tracks from track_shot()
+        frames_path: Path to frames directory
+        sample_method: How to choose representative frame ('middle', 'first', 'last')
+
+    Returns:
+        Tuple of (embeddings_list, representative_info_list)
+        - embeddings_list: List of 512-dim embedding vectors, one per track
+        - representative_info_list: List of dicts with track_idx, frame_num, bbox
+    """
+
+    # Initialize model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = InceptionResnetV1(pretrained='vggface2', classify=False)
+    model.to(device)
+    model.eval()
+
+    print(f"Extracting representative faces from {len(allTracks)} tracks...")
+    print(f"Using device: {device}")
+
+    embeddings = []
+    representative_info = []
+
+    for track_idx, track in enumerate(allTracks):
+        try:
+            # Extract face image from this track
+            face_image, frame_num, bbox = extract_representative_face_from_track(
+                track, frames_path, sample_method=sample_method
+            )
+
+            # Compute embedding
+            embedding = compute_embedding_for_face(face_image, model, device)
+
+            embeddings.append(embedding)
+            representative_info.append({
+                'track_idx': track_idx,
+                'frame_num': frame_num,
+                'bbox': bbox
+            })
+
+            print(f"  Track {track_idx}: sampled frame {frame_num}")
+
+        except Exception as e:
+            print(f"  Error processing track {track_idx}: {e}")
+            continue
+
+    print(f"Successfully extracted {len(embeddings)} embeddings\n")
+
+    return embeddings, representative_info
+
+
+def cluster_track_embeddings(embeddings, eps=0.5, min_samples=1):
+    """
+    Cluster track embeddings using DBSCAN to group tracks of the same person.
+
+    Args:
+        embeddings: List of embedding vectors
+        eps: Distance threshold for DBSCAN (0.4-0.6 typical)
+        min_samples: Minimum samples in a cluster (1 means each detection
+                    counts as a potential cluster)
+
+    Returns:
+        Dict mapping cluster_id -> list of track indices in that cluster
+    """
+
+    embeddings_array = np.array(embeddings)
+
+    print("Clustering track embeddings by facial identity...")
+
+    # Fit DBSCAN
+    clusterer = DBSCAN(eps=eps, min_samples=min_samples, metric='euclidean')
+    labels = clusterer.fit_predict(embeddings_array)
+
+    # Group by cluster
+    clusters = {}
+    for track_idx, label in enumerate(labels):
+        if label == -1:  # Skip noise
+            print(f"  Track {track_idx} marked as noise/outlier")
+            continue
+
+        if label not in clusters:
+            clusters[label] = []
+        clusters[label].append(track_idx)
+
+    print(f"Found {len(clusters)} identity clusters:\n")
+    for cluster_id in sorted(clusters.keys()):
+        track_indices = clusters[cluster_id]
+        print(f"  Cluster {cluster_id}: tracks {track_indices} ({len(track_indices)} tracks total)")
+
+    print()
+    return clusters
+
+
+def select_target_speaker_cluster(allTracks, clusters, frames_path, selection_method='center_distance'):
+    """
+    Select which cluster represents the target speaker.
+
+    Args:
+        allTracks: Original list of all tracks
+        clusters: Dict from cluster_track_embeddings()
+        frames_path: Path to frames directory (for computing frame dimensions)
+        selection_method: How to choose the target cluster:
+                         - 'center_distance': Pick cluster closest to frame center
+                         - 'num_frames': Pick cluster with most total frames
+                         - 'num_tracks': Pick cluster with most tracks
+
+    Returns:
+        Tuple of (target_cluster_id, cluster_stats)
+        - target_cluster_id: Which cluster is the target speaker
+        - cluster_stats: Dict with statistics about each cluster
+    """
+
+    # Get frame dimensions
+    flist = sorted(glob.glob(os.path.join(frames_path, "*.jpg")))
+    sample_frame = cv2.imread(flist[0])
+    frame_h, frame_w = sample_frame.shape[:2]
+    frame_cx = frame_w / 2.0
+    frame_cy = frame_h / 2.0
+
+    print("="*70)
+    print("CLUSTER STATISTICS FOR TARGET SPEAKER SELECTION")
+    print("="*70)
+
+    cluster_stats = {}
+
+    for cluster_id, track_indices in clusters.items():
+        # Compute statistics for this cluster
+        num_tracks = len(track_indices)
+        total_frames = sum(len(allTracks[tidx]['frame']) for tidx in track_indices)
+
+        # Compute average distance from center
+        total_dist = 0.0
+        total_bbox_count = 0
+        for tidx in track_indices:
+            track = allTracks[tidx]
+            bboxes = track['bbox']
+            for bbox in bboxes:
+                cx = (bbox[0] + bbox[2]) / 2
+                cy = (bbox[1] + bbox[3]) / 2
+                dist = np.sqrt((cx - frame_cx)**2 + (cy - frame_cy)**2)
+                total_dist += dist
+                total_bbox_count += 1
+
+        avg_dist_from_center = total_dist / total_bbox_count if total_bbox_count > 0 else float('inf')
+
+        cluster_stats[cluster_id] = {
+            'num_tracks': num_tracks,
+            'total_frames': total_frames,
+            'avg_dist_from_center': avg_dist_from_center,
+            'track_indices': track_indices
+        }
+
+        print(f"\nCluster {cluster_id}:")
+        print(f"  Tracks: {track_indices}")
+        print(f"  Number of tracks: {num_tracks}")
+        print(f"  Total frames: {total_frames}")
+        print(f"  Avg distance from center: {avg_dist_from_center:.1f} pixels")
+
+    # Select target cluster
+    print("\n" + "="*70)
+
+    if selection_method == 'center_distance':
+        target_cluster_id = min(
+            cluster_stats.keys(),
+            key=lambda cid: cluster_stats[cid]['avg_dist_from_center']
+        )
+        reason = f"closest to center ({cluster_stats[target_cluster_id]['avg_dist_from_center']:.1f} pixels)"
+
+    elif selection_method == 'num_frames':
+        target_cluster_id = max(
+            cluster_stats.keys(),
+            key=lambda cid: cluster_stats[cid]['total_frames']
+        )
+        reason = f"most frames ({cluster_stats[target_cluster_id]['total_frames']} frames)"
+
+    elif selection_method == 'num_tracks':
+        target_cluster_id = max(
+            cluster_stats.keys(),
+            key=lambda cid: cluster_stats[cid]['num_tracks']
+        )
+        reason = f"most tracks ({cluster_stats[target_cluster_id]['num_tracks']} tracks)"
+
+    else:
+        raise ValueError(f"Unknown selection_method: {selection_method}")
+
+    print(f"TARGET SPEAKER: Cluster {target_cluster_id}")
+    print(f"Reason: {reason}")
+    print("="*70 + "\n")
+
+    return target_cluster_id, cluster_stats
+
+
+def merge_tracks_of_same_person(allTracks, target_track_indices):
+    """
+    Merge multiple tracks that belong to the same person into a single unified track.
+
+    This is the crucial part: we need to respect the temporal order of frames
+    and properly combine the interpolated bounding boxes.
+
+    Args:
+        allTracks: Original list of all tracks
+        target_track_indices: List of track indices to merge (e.g., [0, 2, 3])
+
+    Returns:
+        Single merged track dict with 'frame' and 'bbox' arrays
+    """
+
+    print(f"Merging tracks {target_track_indices}...")
+
+    # Collect all frame-bbox pairs from the tracks we're merging
+    frame_bbox_pairs = []
+
+    for track_idx in target_track_indices:
+        track = allTracks[track_idx]
+        frames = track['frame']
+        bboxes = track['bbox']
+
+        # Each frame has a corresponding bbox
+        for frame_num, bbox in zip(frames, bboxes):
+            frame_bbox_pairs.append({
+                'frame': frame_num,
+                'bbox': bbox,
+                'original_track': track_idx
+            })
+
+    # Sort by frame number to get temporal order
+    frame_bbox_pairs.sort(key=lambda x: x['frame'])
+
+    # Extract sorted frames and bboxes
+    merged_frames = np.array([pair['frame'] for pair in frame_bbox_pairs])
+    merged_bboxes = np.array([pair['bbox'] for pair in frame_bbox_pairs])
+
+    merged_track = {
+        'frame': merged_frames,
+        'bbox': merged_bboxes,
+        'original_track_indices': target_track_indices,
+        'num_original_tracks': len(target_track_indices)
+    }
+
+    print(f"Merged track contains {len(merged_frames)} frames")
+    print(f"Frame range: {merged_frames[0]} to {merged_frames[-1]}")
+    print(f"Original separate frames from {len(target_track_indices)} tracks combined\n")
+
+    return merged_track
+
+
+def merge_tracks_by_facial_identity(allTracks, frames_path, eps=0.5,
+                                     selection_method='center_distance',
+                                     sample_method='middle'):
+    """
+    MAIN FUNCTION: Cluster tracks by facial identity and merge target speaker tracks.
+
+    This function orchestrates the entire process:
+    1. Extract one representative face from each track
+    2. Compute embeddings for facial identity
+    3. Cluster embeddings to group same-person tracks
+    4. Select which cluster is the target speaker
+    5. Merge all target speaker tracks into one unified track
+
+    Args:
+        allTracks: List of tracks from track_shot()
+        frames_path: Path to extracted video frames
+        eps: DBSCAN epsilon parameter (0.4-0.6 typical)
+        selection_method: How to pick target speaker ('center_distance', 'num_frames', 'num_tracks')
+        sample_method: Which frame to sample from each track ('middle', 'first', 'last')
+
+    Returns:
+        Single merged track containing all target speaker detections
+    """
+
+    print("\n" + "="*70)
+    print("MERGING TRACKS BY FACIAL IDENTITY")
+    print("="*70 + "\n")
+
+    # Step 1: Extract embeddings from each track
+    embeddings, representative_info = extract_embeddings_from_tracks(
+        allTracks, frames_path, sample_method=sample_method
+    )
+
+    if len(embeddings) == 0:
+        raise ValueError("No embeddings could be extracted from tracks")
+
+    # Step 2: Cluster embeddings
+    clusters = cluster_track_embeddings(embeddings, eps=eps, min_samples=1)
+
+    if len(clusters) == 0:
+        raise ValueError("No clusters formed. Try increasing eps parameter.")
+
+    # Step 3: Select target speaker cluster
+    target_cluster_id, cluster_stats = select_target_speaker_cluster(
+        allTracks, clusters, frames_path, selection_method=selection_method
+    )
+
+    # Step 4: Get the track indices for target cluster
+    target_track_indices = cluster_stats[target_cluster_id]['track_indices']
+
+    # Step 5: Merge the target tracks
+    merged_track = merge_tracks_of_same_person(allTracks, target_track_indices)
+
+    return merged_track
+
+
+# ============================================================================
+# Example usage
+# ============================================================================
+
+# if __name__ == "__main__":
+#     """
+#     Example of how to use this module in your preprocessing pipeline.
+#     """
+
+#     # In your main() function, after you've obtained allTracks from track_shot():
+
+#     # merged_target_track = merge_tracks_by_facial_identity(
+#     #     allTracks,
+#     #     video_args.pyframesPath,
+#     #     eps=0.5,
+#     #     selection_method='center_distance',
+#     #     sample_method='middle'
+#     # )
+#     #
+#     # # Replace allTracks with the merged track
+#     # allTracks = [merged_target_track]
+#     #
+#     # # Now continue with the rest of your pipeline (face cropping, etc.)
+
+#     print("Module ready for import. See docstrings for usage.")
 
 
 def evaluate_network(files, video_args, args):
