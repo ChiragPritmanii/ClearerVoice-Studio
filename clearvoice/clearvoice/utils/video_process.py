@@ -237,46 +237,46 @@ def main(video_args, args):
     print(f"Time taken detect target face: {runtime:.3f} seconds")
     print("*"*100)
 
-    # # Face clips cropping
-    # start_time = time.time()
-    # for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
-    #     vidTracks.append(
-    #         crop_video(
-    #             video_args, track, os.path.join(video_args.pycropPath, "%05d" % ii)
-    #         )
-    #     )
-    # savePath = os.path.join(video_args.pyworkPath, "tracks.pckl")
-    # with open(savePath, "wb") as fil:
-    #     pickle.dump(vidTracks, fil)
-    # sys.stderr.write(
-    #     time.strftime("%Y-%m-%d %H:%M:%S")
-    #     + " Face Crop and saved in %s tracks \r\n" % video_args.pycropPath
-    # )
-    # fil = open(savePath, "rb")
-    # vidTracks = pickle.load(fil)
-    # fil.close()
-    # end_time = time.time()
-    # runtime = end_time - start_time
-    # print(f"Time taken to crop face clips: {runtime:.3f} seconds")
+    # Face clips cropping
+    start_time = time.time()
+    for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
+        vidTracks.append(
+            crop_video(
+                video_args, track, os.path.join(video_args.pycropPath, "%05d" % ii)
+            )
+        )
+    savePath = os.path.join(video_args.pyworkPath, "tracks.pckl")
+    with open(savePath, "wb") as fil:
+        pickle.dump(vidTracks, fil)
+    sys.stderr.write(
+        time.strftime("%Y-%m-%d %H:%M:%S")
+        + " Face Crop and saved in %s tracks \r\n" % video_args.pycropPath
+    )
+    fil = open(savePath, "rb")
+    vidTracks = pickle.load(fil)
+    fil.close()
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken to crop face clips: {runtime:.3f} seconds")
 
-    # # AVSE
-    # files = glob.glob("%s/*.avi" % video_args.pycropPath)
-    # files.sort()
-    # assert len(files) == 1
-    # fname = files[0].split("/")[-1].split(".")[-2]
+    # AVSE
+    files = glob.glob("%s/*.avi" % video_args.pycropPath)
+    files.sort()
+    assert len(files) == 1
+    fname = files[0].split("/")[-1].split(".")[-2]
 
-    # start_time = time.time()
-    # est_sources = evaluate_network(files, video_args, args)
-    # end_time = time.time()
-    # runtime = end_time - start_time
-    # print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
+    start_time = time.time()
+    est_sources = evaluate_network(files, video_args, args)
+    end_time = time.time()
+    runtime = end_time - start_time
+    print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
 
-    # # Save the estimated audio to wav format:
-    # est_audio = np.concatenate(est_sources, axis=0)
-    # max_value = np.max(np.abs(est_audio))
-    # if max_value > 1:
-    #     est_audio /= max_value
-    # sf.write(video_args.pycropPath + f"/est_{fname}.wav", est_audio, 16000)
+    # Save the estimated audio to wav format:
+    est_audio = np.concatenate(est_sources, axis=0)
+    max_value = np.max(np.abs(est_audio))
+    if max_value > 1:
+        est_audio /= max_value
+    sf.write(video_args.pycropPath + f"/est_{fname}.wav", est_audio, 16000)
 
     # rmtree(video_args.pyworkPath)
     # rmtree(video_args.pyframesPath)
