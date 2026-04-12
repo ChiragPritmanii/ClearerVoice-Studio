@@ -220,6 +220,9 @@ def main(video_args, args):
         similarity_threshold=0.5  # Adjust this if needed
     )
     allTracks = [merged_track]
+    print("Summary of track merging by facial identity:")
+    for key, value in summary.items():
+        print(f"  {key}: {value}")
     # merged_target_track = merge_tracks_by_facial_identity(
     #     allTracks,
     #     video_args.pyframesPath,
