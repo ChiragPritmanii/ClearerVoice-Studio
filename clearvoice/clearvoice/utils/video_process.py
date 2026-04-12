@@ -217,7 +217,7 @@ def main(video_args, args):
     merger = SimilarityThresholdTrackMerger(allTracks, video_args.pyframesPath)
     merged_track, target_indices, summary = merger.merge_tracks_by_similarity(
         embedding_model,
-        similarity_threshold=0.65  # Adjust this if needed
+        similarity_threshold=0.5  # Adjust this if needed
     )
     allTracks = [merged_track]
     # merged_target_track = merge_tracks_by_facial_identity(
@@ -235,34 +235,35 @@ def main(video_args, args):
     end_time = time.time()
     runtime = end_time - start_time
     print(f"Time taken detect target face: {runtime:.3f} seconds")
+    print("*"*100)
 
-    # Face clips cropping
-    start_time = time.time()
-    for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
-        vidTracks.append(
-            crop_video(
-                video_args, track, os.path.join(video_args.pycropPath, "%05d" % ii)
-            )
-        )
-    savePath = os.path.join(video_args.pyworkPath, "tracks.pckl")
-    with open(savePath, "wb") as fil:
-        pickle.dump(vidTracks, fil)
-    sys.stderr.write(
-        time.strftime("%Y-%m-%d %H:%M:%S")
-        + " Face Crop and saved in %s tracks \r\n" % video_args.pycropPath
-    )
-    fil = open(savePath, "rb")
-    vidTracks = pickle.load(fil)
-    fil.close()
-    end_time = time.time()
-    runtime = end_time - start_time
-    print(f"Time taken to crop face clips: {runtime:.3f} seconds")
+    # # Face clips cropping
+    # start_time = time.time()
+    # for ii, track in tqdm.tqdm(enumerate(allTracks), total=len(allTracks)):
+    #     vidTracks.append(
+    #         crop_video(
+    #             video_args, track, os.path.join(video_args.pycropPath, "%05d" % ii)
+    #         )
+    #     )
+    # savePath = os.path.join(video_args.pyworkPath, "tracks.pckl")
+    # with open(savePath, "wb") as fil:
+    #     pickle.dump(vidTracks, fil)
+    # sys.stderr.write(
+    #     time.strftime("%Y-%m-%d %H:%M:%S")
+    #     + " Face Crop and saved in %s tracks \r\n" % video_args.pycropPath
+    # )
+    # fil = open(savePath, "rb")
+    # vidTracks = pickle.load(fil)
+    # fil.close()
+    # end_time = time.time()
+    # runtime = end_time - start_time
+    # print(f"Time taken to crop face clips: {runtime:.3f} seconds")
 
-    # AVSE
-    files = glob.glob("%s/*.avi" % video_args.pycropPath)
-    files.sort()
-    assert len(files) == 1
-    fname = files[0].split("/")[-1].split(".")[-2]
+    # # AVSE
+    # files = glob.glob("%s/*.avi" % video_args.pycropPath)
+    # files.sort()
+    # assert len(files) == 1
+    # fname = files[0].split("/")[-1].split(".")[-2]
 
     # start_time = time.time()
     # est_sources = evaluate_network(files, video_args, args)
