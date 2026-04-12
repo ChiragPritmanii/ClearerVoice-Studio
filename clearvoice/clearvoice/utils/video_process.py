@@ -18,6 +18,7 @@ from scenedetect.detectors import ContentDetector
 from ..models.av_mossformer2_tse.faceDetector.s3fd import S3FD
 
 from .decode import decode_one_audio_AV_MossFormer2_TSE_16K
+from .track_merge import SimilarityThresholdTrackMerger
 
 
 def process_tse(args, model, device, data_reader, output_wave_dir):
@@ -209,15 +210,25 @@ def main(video_args, args):
 
     # Detect and keep only the target face track
     start_time = time.time()
-    merged_target_track = merge_tracks_by_facial_identity(
-        allTracks,
-        video_args.pyframesPath,
-        eps=0.5,                           # Distance threshold for clustering
-        selection_method='center_distance', # Pick cluster closest to center
-        sample_method='middle'              # Sample middle frame of each track
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    embedding_model = InceptionResnetV1(pretrained='vggface2', classify=False)
+    embedding_model.to(device)
+    embedding_model.eval()
+    merger = SimilarityThresholdTrackMerger(allTracks, video_args.pyframesPath)
+    merged_track, target_indices, summary = merger.merge_tracks_by_similarity(
+        embedding_model,
+        similarity_threshold=0.65  # Adjust this if needed
     )
-    allTracks = [merged_target_track]
-    print(f"Successfully merged tracks by facial identity")
+    allTracks = [merged_track]
+    # merged_target_track = merge_tracks_by_facial_identity(
+    #     allTracks,
+    #     video_args.pyframesPath,
+    #     eps=0.5,                           # Distance threshold for clustering
+    #     selection_method='center_distance', # Pick cluster closest to center
+    #     sample_method='middle'              # Sample middle frame of each track
+    # )
+    # allTracks = [merged_target_track]
+    # print(f"Successfully merged tracks by facial identity")
     # Previous Method : 
     # target_face_idx = detect_target_face(allTracks, video_args.pyframesPath)
     # allTracks = [allTracks[target_face_idx]]
@@ -253,21 +264,21 @@ def main(video_args, args):
     assert len(files) == 1
     fname = files[0].split("/")[-1].split(".")[-2]
 
-    start_time = time.time()
-    est_sources = evaluate_network(files, video_args, args)
-    end_time = time.time()
-    runtime = end_time - start_time
-    print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
+    # start_time = time.time()
+    # est_sources = evaluate_network(files, video_args, args)
+    # end_time = time.time()
+    # runtime = end_time - start_time
+    # print(f"Time taken for target speaker audio extraction: {runtime:.3f} seconds")
 
-    # Save the estimated audio to wav format:
-    est_audio = np.concatenate(est_sources, axis=0)
-    max_value = np.max(np.abs(est_audio))
-    if max_value > 1:
-        est_audio /= max_value
-    sf.write(video_args.pycropPath + f"/est_{fname}.wav", est_audio, 16000)
+    # # Save the estimated audio to wav format:
+    # est_audio = np.concatenate(est_sources, axis=0)
+    # max_value = np.max(np.abs(est_audio))
+    # if max_value > 1:
+    #     est_audio /= max_value
+    # sf.write(video_args.pycropPath + f"/est_{fname}.wav", est_audio, 16000)
 
-    rmtree(video_args.pyworkPath)
-    rmtree(video_args.pyframesPath)
+    # rmtree(video_args.pyworkPath)
+    # rmtree(video_args.pyframesPath)
 
 
 def split_to_chunks(in_path, out_path):
