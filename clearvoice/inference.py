@@ -6,7 +6,7 @@ def main():
     )
 
     myClearVoice(
-        input_path="/content/ClearerVoice-Studio/clearvoice/samples/path_to_input_videos_tse/blackjack01.mp4", 
+        input_path="/content/ClearerVoice-Studio/clearvoice/samples/scp/video_samples.scp", 
         online_write=True, 
         output_path="/content/ClearerVoice-Studio/clearvoice/samples/path_to_output_videos_tse/"
         )
